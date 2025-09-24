@@ -17,17 +17,23 @@ goos: linux
 goarch: amd64
 pkg: mmaps-in-go
 cpu: AMD Ryzen 7 9800X3D 8-Core Processor
-BenchmarkRandomAccess/ReaderAt-16                        6017436             186.0 ns/op
-BenchmarkRandomAccess/Mmap-16                          958784758             1.253 ns/op
-BenchmarkBatchRandomAccess/ReaderAt_Batch10-16            640561              1956 ns/op
-BenchmarkBatchRandomAccess/Mmap_Batch10-16              29301102             42.44 ns/op
-BenchmarkBatchRandomAccess/ReaderAt_Batch100-16            64110             17896 ns/op
-BenchmarkBatchRandomAccess/Mmap_Batch100-16              2920698             417.7 ns/op
-BenchmarkBatchRandomAccess/ReaderAt_Batch1000-16            6356            180232 ns/op
-BenchmarkBatchRandomAccess/Mmap_Batch1000-16              291384              4076 ns/op
-BenchmarkSequentialIteration/ReaderAt-16                 7834741             151.4 ns/op
-BenchmarkSequentialIteration/Mmap-16                   877167153             1.368 ns/op
-```
+BenchmarkRandomAccess/ReaderAt-16                        5923904               183.2 ns/op
+BenchmarkRandomAccess/Mmap-16                          888859101               1.346 ns/op
+BenchmarkBatchRandomAccess/ReaderAt_Batch10-16            638024                1945 ns/op
+BenchmarkBatchRandomAccess/Mmap_Batch10-16              29274152               43.35 ns/op
+BenchmarkBatchRandomAccess/ReaderAt_Batch100-16            65421               17880 ns/op
+BenchmarkBatchRandomAccess/Mmap_Batch100-16              2842656               450.6 ns/op
+BenchmarkBatchRandomAccess/ReaderAt_Batch1000-16            6172              180735 ns/op
+BenchmarkBatchRandomAccess/Mmap_Batch1000-16              284106                4439 ns/op
+BenchmarkSequentialIteration/ReaderAt-16                 7839873               151.5 ns/op
+BenchmarkSequentialIteration/Mmap-16                   885674036               1.355 ns/op
+BenchmarkRandomWrite/WriterAt-16                         3921442               297.3 ns/op
+BenchmarkRandomWrite/Mmap-16                            12738498               81.13 ns/op
+BenchmarkSequentialWrite/WriterAt-16                     4498597               266.8 ns/op
+BenchmarkSequentialWrite/Mmap-16                        16537776               60.53 ns/op
+BenchmarkColdVsWarmPages/Mmap_ColdPages-16                610305              1870 ns/op
+BenchmarkColdVsWarmPages/Mmap_WarmPages-16              14676864                79.45 ns/op
+BenchmarkColdVsWarmPages/WriterAt_Baseline-16            3964844               303.6 ns/op```
 
 ## Results, MacOS
 
