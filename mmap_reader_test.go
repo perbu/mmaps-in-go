@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"math/rand"
 	"os"
 	"testing"
@@ -217,4 +218,298 @@ func TestReaderConsistency(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestWriterConsistency verifies both writers produce identical results.
+func TestWriterConsistency(t *testing.T) {
+	// Create a temporary test file for write testing
+	tempFile := "write_test.bin"
+	defer os.Remove(tempFile)
+
+	// Copy original test file to temp file for testing
+	srcFile, err := os.Open(testFile)
+	if err != nil {
+		t.Fatalf("failed to open source file: %v", err)
+	}
+	defer srcFile.Close()
+
+	dstFile1, err := os.Create(tempFile + ".1")
+	if err != nil {
+		t.Fatalf("failed to create temp file 1: %v", err)
+	}
+	_, err = io.Copy(dstFile1, srcFile)
+	dstFile1.Close()
+	if err != nil {
+		t.Fatalf("failed to copy to temp file 1: %v", err)
+	}
+
+	srcFile.Seek(0, 0)
+	dstFile2, err := os.Create(tempFile + ".2")
+	if err != nil {
+		t.Fatalf("failed to create temp file 2: %v", err)
+	}
+	defer os.Remove(tempFile + ".1")
+	defer os.Remove(tempFile + ".2")
+	_, err = io.Copy(dstFile2, srcFile)
+	dstFile2.Close()
+	if err != nil {
+		t.Fatalf("failed to copy to temp file 2: %v", err)
+	}
+
+	writerAt, err := NewWriterAtWriter(tempFile + ".1")
+	if err != nil {
+		t.Fatalf("failed to create WriterAt writer: %v", err)
+	}
+	defer writerAt.Close()
+
+	mmapWriter, err := NewMmapWriter(tempFile + ".2")
+	if err != nil {
+		t.Fatalf("failed to create mmap writer: %v", err)
+	}
+	defer mmapWriter.Close()
+
+	// Test writing the same data to both files
+	testIndices := []int{0, 1, 100, 1000, 10000, 100000, 500000, 999999}
+	rng := rand.New(rand.NewSource(98765))
+
+	for _, index := range testIndices {
+		data := make([]byte, RecordSize)
+		rng.Read(data)
+
+		err := writerAt.WriteRecord(index, data)
+		if err != nil {
+			t.Fatalf("WriterAt failed to write record %d: %v", index, err)
+		}
+
+		err = mmapWriter.WriteRecord(index, data)
+		if err != nil {
+			t.Fatalf("Mmap failed to write record %d: %v", index, err)
+		}
+	}
+
+	// Close writers to ensure data is written
+	writerAt.Close()
+	mmapWriter.Close()
+
+	// Now verify both files have identical content
+	readerAt1, err := NewReaderAtReader(tempFile + ".1")
+	if err != nil {
+		t.Fatalf("failed to create reader for file 1: %v", err)
+	}
+	defer readerAt1.Close()
+
+	readerAt2, err := NewReaderAtReader(tempFile + ".2")
+	if err != nil {
+		t.Fatalf("failed to create reader for file 2: %v", err)
+	}
+	defer readerAt2.Close()
+
+	buf1 := make([]byte, RecordSize)
+	buf2 := make([]byte, RecordSize)
+
+	for _, index := range testIndices {
+		data1, err := readerAt1.ReadRecord(index, buf1)
+		if err != nil {
+			t.Fatalf("Failed to read record %d from file 1: %v", index, err)
+		}
+
+		data2, err := readerAt2.ReadRecord(index, buf2)
+		if err != nil {
+			t.Fatalf("Failed to read record %d from file 2: %v", index, err)
+		}
+
+		if len(data1) != len(data2) {
+			t.Errorf("Length mismatch at record %d: WriterAt=%d, Mmap=%d", index, len(data1), len(data2))
+		}
+
+		for i := 0; i < len(data1) && i < len(data2); i++ {
+			if data1[i] != data2[i] {
+				t.Errorf("Data mismatch at record %d, byte %d: WriterAt=%d, Mmap=%d", index, i, data1[i], data2[i])
+				break
+			}
+		}
+	}
+}
+
+// BenchmarkRandomWrite measures single random record write performance.
+// Uses deterministic random seed for reproducible results across runs.
+func BenchmarkRandomWrite(b *testing.B) {
+	b.Run("WriterAt", func(b *testing.B) {
+		writer, err := NewWriterAtWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create WriterAt writer: %v", err)
+		}
+		defer writer.Close()
+
+		rng := rand.New(rand.NewSource(42))
+		indices := make([]int, b.N)
+		data := make([]byte, RecordSize)
+		for i := 0; i < b.N; i++ {
+			indices[i] = rng.Intn(RecordCount)
+			rng.Read(data)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			rng.Read(data)
+			err := writer.WriteRecord(indices[i], data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", indices[i], err)
+			}
+		}
+	})
+
+	b.Run("Mmap", func(b *testing.B) {
+		writer, err := NewMmapWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create mmap writer: %v", err)
+		}
+		defer writer.Close()
+
+		rng := rand.New(rand.NewSource(42))
+		indices := make([]int, b.N)
+		data := make([]byte, RecordSize)
+		for i := 0; i < b.N; i++ {
+			indices[i] = rng.Intn(RecordCount)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			rng.Read(data)
+			err := writer.WriteRecord(indices[i], data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", indices[i], err)
+			}
+		}
+	})
+}
+
+// BenchmarkSequentialWrite measures sequential write performance.
+func BenchmarkSequentialWrite(b *testing.B) {
+	b.Run("WriterAt", func(b *testing.B) {
+		writer, err := NewWriterAtWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create WriterAt writer: %v", err)
+		}
+		defer writer.Close()
+
+		data := make([]byte, RecordSize)
+		rng := rand.New(rand.NewSource(12345))
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			recordIndex := i % RecordCount
+			rng.Read(data)
+			err := writer.WriteRecord(recordIndex, data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", recordIndex, err)
+			}
+		}
+	})
+
+	b.Run("Mmap", func(b *testing.B) {
+		writer, err := NewMmapWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create mmap writer: %v", err)
+		}
+		defer writer.Close()
+
+		data := make([]byte, RecordSize)
+		rng := rand.New(rand.NewSource(12345))
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			recordIndex := i % RecordCount
+			rng.Read(data)
+			err := writer.WriteRecord(recordIndex, data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", recordIndex, err)
+			}
+		}
+	})
+}
+
+// BenchmarkColdVsWarmPages demonstrates the dramatic performance difference between
+// cold pages (not in memory, causing page faults) vs warm pages (already in memory).
+// This is the key insight: mmap writes have two completely different performance profiles.
+func BenchmarkColdVsWarmPages(b *testing.B) {
+	// Cold pages: evict pages from memory before each write to force page faults
+	b.Run("Mmap_ColdPages", func(b *testing.B) {
+		writer, err := NewMmapWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create mmap writer: %v", err)
+		}
+		defer writer.Close()
+
+		rng := rand.New(rand.NewSource(42))
+		indices := make([]int, b.N)
+		data := make([]byte, RecordSize)
+		for i := 0; i < b.N; i++ {
+			indices[i] = rng.Intn(RecordCount)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			// Force page eviction to simulate cold pages (page fault on write)
+			writer.EvictPages()
+			rng.Read(data)
+			err := writer.WriteRecord(indices[i], data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", indices[i], err)
+			}
+		}
+	})
+
+	// Warm pages: pre-touch pages to ensure they're in memory
+	b.Run("Mmap_WarmPages", func(b *testing.B) {
+		writer, err := NewMmapWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create mmap writer: %v", err)
+		}
+		defer writer.Close()
+
+		// Pre-warm all pages by touching them
+		writer.WarmPages()
+
+		rng := rand.New(rand.NewSource(42))
+		indices := make([]int, b.N)
+		data := make([]byte, RecordSize)
+		for i := 0; i < b.N; i++ {
+			indices[i] = rng.Intn(RecordCount)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			rng.Read(data)
+			err := writer.WriteRecord(indices[i], data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", indices[i], err)
+			}
+		}
+	})
+
+	// WriterAt for comparison (not affected by page cache in same way)
+	b.Run("WriterAt_Baseline", func(b *testing.B) {
+		writer, err := NewWriterAtWriter(testFile)
+		if err != nil {
+			b.Fatalf("failed to create WriterAt writer: %v", err)
+		}
+		defer writer.Close()
+
+		rng := rand.New(rand.NewSource(42))
+		indices := make([]int, b.N)
+		data := make([]byte, RecordSize)
+		for i := 0; i < b.N; i++ {
+			indices[i] = rng.Intn(RecordCount)
+		}
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			rng.Read(data)
+			err := writer.WriteRecord(indices[i], data)
+			if err != nil {
+				b.Fatalf("failed to write record %d: %v", indices[i], err)
+			}
+		}
+	})
 }
