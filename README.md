@@ -34,7 +34,7 @@ BenchmarkSequentialWrite/Mmap-16                        16537776               6
 BenchmarkColdVsWarmPages/Mmap_ColdPages-16                610305              1870 ns/op
 BenchmarkColdVsWarmPages/Mmap_WarmPages-16              14676864                79.45 ns/op
 BenchmarkColdVsWarmPages/WriterAt_Baseline-16            3964844               303.6 ns/op```
-
+```
 ## Results, MacOS
 
 ```
